@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>My URL Shortener</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Malgun Gothic", sans-serif;
+    margin: 0; padding: 2rem 1rem;
+    background: #f5f5f5; color: #222;
+    min-height: 100vh;
+  }
+  .container { max-width: 680px; margin: 0 auto; }
+  h1 { color: #CAAA44; margin-top: 0; }
+  .card {
+    background: white; padding: 1.5rem;
+    border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+    margin-bottom: 1.5rem;
+  }
+  label { display: block; font-weight: 600; margin: 0.75rem 0 0.25rem; font-size: 0.9rem; }
+  input[type="text"], input[type="url"], input[type="password"] {
+    width: 100%; padding: 0.6rem 0.8rem;
+    border: 1px solid #ddd; border-radius: 8px;
+    font-size: 1rem;
+  }
+  input:focus { outline: none; border-color: #CAAA44; }
+  button {
+    background: #CAAA44; color: white; border: none;
+    padding: 0.7rem 1.3rem; border-radius: 8px;
+    font-size: 1rem; font-weight: 600;
+    cursor: pointer; margin-top: 1rem;
+  }
+  button:hover { background: #b3952e; }
+  button.secondary { background: #888; }
+  .muted { color: #888; font-size: 0.85rem; }
+  .row { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+  .row input { flex: 1; min-width: 200px; }
+  .list-item {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0.6rem 0; border-bottom: 1px solid #eee;
+    gap: 0.5rem; flex-wrap: wrap;
+  }
+  .list-item:last-child { border-bottom: none; }
+  .slug { font-weight: 600; color: #CAAA44; }
+  .target { color: #666; font-size: 0.85rem; word-break: break-all; flex: 1; min-width: 200px; }
+  .actions { display: flex; gap: 0.4rem; }
+  .actions button { margin: 0; padding: 0.3rem 0.6rem; font-size: 0.8rem; }
+  .danger { background: #d94a4a !important; }
+  #status {
+    padding: 0.75rem; border-radius: 8px; margin-top: 1rem;
+    display: none;
+  }
+  #status.show { display: block; }
+  #status.ok { background: #e8f5e9; color: #2e7d32; }
+  #status.err { background: #ffebee; color: #c62828; }
+  details { margin-top: 0.5rem; }
+  summary { cursor: pointer; color: #888; font-size: 0.85rem; }
+  code { background: #f0f0f0; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🔗 URL Shortener</h1>
+
+  <div class="card">
+    <h3 style="margin-top:0;">설정</h3>
+    <label>GitHub 사용자명</label>
+    <input type="text" id="gh-user" placeholder="예: octocat">
+    <label>저장소 이름</label>
+    <input type="text" id="gh-repo" placeholder="예: url-shortener">
+    <label>브랜치</label>
+    <input type="text" id="gh-branch" value="main">
+    <label>Personal Access Token (repo 권한)</label>
+    <input type="password" id="gh-token" placeholder="ghp_xxxxxxxxxxxx">
+    <details>
+      <summary>PAT 발급 방법</summary>
+      <p class="muted">
+        GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic) → Generate new token →
+        <code>repo</code> 스코프 체크 → 생성된 토큰 복사.
+        <br><br>브라우저 localStorage에만 저장되며 외부로 전송되지 않습니다.
+      </p>
+    </details>
+    <button onclick="saveConfig()">저장</button>
+    <button class="secondary" onclick="loadUrls()">목록 불러오기</button>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">단축 URL 추가</h3>
+    <label>원본 URL</label>
+    <input type="url" id="long-url" placeholder="https://example.com/very/long/path">
+    <label>단축 경로 (비우면 자동생성)</label>
+    <input type="text" id="slug" placeholder="예: blog">
+    <button onclick="addUrl()">추가하기</button>
+    <div id="status"></div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-top:0;">등록된 URL</h3>
+    <div id="list"><p class="muted">설정 저장 후 "목록 불러오기"를 클릭하세요.</p></div>
+  </div>
+</div>
+
+<script>
+const LS_KEY = 'url-shortener-config';
+let currentUrls = {};
+let currentSha = null;
+
+function getConfig() {
+  try { return JSON.parse(localStorage.getItem(LS_KEY) || '{}'); }
+  catch { return {}; }
+}
+
+function loadConfig() {
+  const c = getConfig();
+  document.getElementById('gh-user').value = c.user || '';
+  document.getElementById('gh-repo').value = c.repo || '';
+  document.getElementById('gh-branch').value = c.branch || 'main';
+  document.getElementById('gh-token').value = c.token || '';
+}
+
+function saveConfig() {
+  const c = {
+    user: document.getElementById('gh-user').value.trim(),
+    repo: document.getElementById('gh-repo').value.trim(),
+    branch: document.getElementById('gh-branch').value.trim() || 'main',
+    token: document.getElementById('gh-token').value.trim(),
+  };
+  localStorage.setItem(LS_KEY, JSON.stringify(c));
+  showStatus('설정이 저장되었습니다.', 'ok');
+}
+
+function showStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.textContent = msg;
+  el.className = 'show ' + type;
+  setTimeout(() => el.className = '', 3500);
+}
+
+function apiUrl(path) {
+  const c = getConfig();
+  return `https://api.github.com/repos/${c.user}/${c.repo}/contents/${path}`;
+}
+
+async function ghGet(path) {
+  const c = getConfig();
+  const res = await fetch(apiUrl(path) + `?ref=${c.branch}`, {
+    headers: { Authorization: `token ${c.token}`, Accept: 'application/vnd.github+json' }
+  });
+  if (!res.ok) throw new Error(`GET ${path}: ${res.status}`);
+  return res.json();
+}
+
+async function ghPut(path, contentStr, sha, message) {
+  const c = getConfig();
+  const body = {
+    message,
+    content: btoa(unescape(encodeURIComponent(contentStr))),
+    branch: c.branch,
+  };
+  if (sha) body.sha = sha;
+  const res = await fetch(apiUrl(path), {
+    method: 'PUT',
+    headers: {
+      Authorization: `token ${c.token}`,
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`PUT ${path}: ${res.status} - ${err}`);
+  }
+  return res.json();
+}
+
+async function loadUrls() {
+  const c = getConfig();
+  if (!c.user || !c.repo || !c.token) {
+    showStatus('설정을 먼저 저장하세요.', 'err');
+    return;
+  }
+  try {
+    const data = await ghGet('urls.json');
+    currentSha = data.sha;
+    const decoded = decodeURIComponent(escape(atob(data.content.replace(/\n/g, ''))));
+    currentUrls = JSON.parse(decoded);
+    renderList();
+    showStatus('목록을 불러왔습니다.', 'ok');
+  } catch (e) {
+    showStatus(e.message, 'err');
+  }
+}
+
+function renderList() {
+  const c = getConfig();
+  const base = `https://${c.user}.github.io/${c.repo}`;
+  const list = document.getElementById('list');
+  const keys = Object.keys(currentUrls);
+  if (keys.length === 0) {
+    list.innerHTML = '<p class="muted">등록된 URL이 없습니다.</p>';
+    return;
+  }
+  list.innerHTML = keys.map(k => `
+    <div class="list-item">
+      <div>
+        <div><span class="slug">${k}</span></div>
+        <div class="target">→ ${escapeHtml(currentUrls[k])}</div>
+      </div>
+      <div class="actions">
+        <button onclick="copyLink('${encodeURIComponent(k)}')">복사</button>
+        <button class="danger" onclick="deleteUrl('${encodeURIComponent(k)}')">삭제</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function copyLink(encSlug) {
+  const c = getConfig();
+  const slug = decodeURIComponent(encSlug);
+  const link = `https://${c.user}.github.io/${c.repo}/${slug}`;
+  navigator.clipboard.writeText(link).then(() => showStatus('복사됨: ' + link, 'ok'));
+}
+
+function randomSlug() {
+  return Math.random().toString(36).slice(2, 8);
+}
+
+async function addUrl() {
+  const longUrl = document.getElementById('long-url').value.trim();
+  let slug = document.getElementById('slug').value.trim();
+
+  if (!longUrl) { showStatus('원본 URL을 입력하세요.', 'err'); return; }
+  if (!/^https?:\/\//i.test(longUrl)) { showStatus('http(s):// 로 시작해야 합니다.', 'err'); return; }
+
+  if (currentSha === null) {
+    try { await loadUrls(); } catch (e) { showStatus(e.message, 'err'); return; }
+  }
+
+  if (!slug) {
+    do { slug = randomSlug(); } while (currentUrls[slug]);
+  } else if (!/^[a-zA-Z0-9_-]+$/.test(slug)) {
+    showStatus('단축 경로는 영문/숫자/-/_ 만 가능합니다.', 'err'); return;
+  } else if (currentUrls[slug]) {
+    showStatus('이미 존재하는 경로입니다.', 'err'); return;
+  }
+
+  currentUrls[slug] = longUrl;
+  try {
+    const res = await ghPut('urls.json', JSON.stringify(currentUrls, null, 2) + '\n', currentSha, `Add short url: ${slug}`);
+    currentSha = res.content.sha;
+    document.getElementById('long-url').value = '';
+    document.getElementById('slug').value = '';
+    renderList();
+    const c = getConfig();
+    showStatus(`추가됨 (반영까지 30초~2분): https://${c.user}.github.io/${c.repo}/${slug}`, 'ok');
+  } catch (e) {
+    delete currentUrls[slug];
+    showStatus(e.message, 'err');
+  }
+}
+
+async function deleteUrl(encSlug) {
+  const slug = decodeURIComponent(encSlug);
+  if (!confirm(`"${slug}" 삭제?`)) return;
+  const backup = currentUrls[slug];
+  delete currentUrls[slug];
+  try {
+    const res = await ghPut('urls.json', JSON.stringify(currentUrls, null, 2) + '\n', currentSha, `Delete short url: ${slug}`);
+    currentSha = res.content.sha;
+    renderList();
+    showStatus('삭제되었습니다.', 'ok');
+  } catch (e) {
+    currentUrls[slug] = backup;
+    showStatus(e.message, 'err');
+  }
+}
+
+loadConfig();
+</script>
+</body>
+</html>
